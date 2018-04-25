@@ -43,7 +43,7 @@
 
 2 directories, 5 files
 ```
-После осуществления миграций и запуска сервера для разработки, мы должны увидеть надпись приветственную надпись Dоango "It worked!" в браузере по адресу [http://127.0.0.1:8000](http://127.0.0.1:8000).
+После осуществления миграций и запуска сервера для разработки, мы должны увидеть надпись приветственную надпись Django "It worked!" в браузере по адресу [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ```
 (ponynote)  $ cd ponynote
@@ -57,7 +57,7 @@
 
 Если Вы раньше не слышали о Webpack, то в настоящий момент он является дефакто инструментом для сборки модулей, позволяя компилировать все ваши зависимости в несколько небольших файлов (обычно в один). Чтобы узнать больше о Webpack, перейдите на его [официальный сайт](https://webpack.js.org/).
 
-Мы не будем сами конфигурировать Webpack, а воспользуемся `create-react-app` для создания шаблона проекта с уже настроенной конфигурацией. Воспринимайте `create-react-app` как команду `django-admin startproject`, но с гороздо большими возможностями.
+Мы не будем сами конфигурировать Webpack, а воспользуемся `create-react-app` для создания шаблона проекта с уже настроенной конфигурацией. Воспринимайте `create-react-app` как команду `django-admin startproject`, но с гораздо большими возможностями.
 
 Прежде всего надо установить `create-react-app` так, чтобы оно была доступно на уровне всей системы с помощью `npm`. Поскольку мы устанавливаем приложение на уровне всей системы, нам потребуются права суперпользователя.
 
@@ -120,9 +120,101 @@ $ npm run start
 
 После её выполнения отобразится стандартное окно приветствия React.
 
-![react](https://github.com/MaksimDzhangirov/Django-React/img/part1/react.png)
+![react](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part1/react.png)
 
 По умолчанию сервер для разработки настроен так, что реагирует на изменения налету. Это означает, что любые изменения в исходных файлах будут мгновенно отображены в браузере, без необходимости обновлять страницу вручную.
 
 ## Интеграция React и Django
 
+Теперь когда у нас есть рабочий сервер с Django и Webpack сервер для разработки, на котором работает React, интегрируем их таким образом, чтобы Django мог отображать SPA, используя свой сервер. Для этого будем использовать `django-webpack-loader` - приложение Django, которое внедряет теги link и script из пакетов, генерируемых динамически Webpack.
+
+Начнём с установки `webpack_loader` в наш Django проект:
+
+```
+(ponynote)  $ pip install django-webpack-loader
+```
+
+Затем в файл проекта `settings.py` добавьте `webpack_loader` в список `INSTALLED_APPS`:
+
+```
+WEBPACK_LOADER = {
+    'DEFAULT': {
+            'BUNDLE_DIR_NAME': 'bundles/',
+            'STATS_FILE': os.path.join(BASE_DIR, 'webpack-stats.dev.json'),
+        }
+}
+```
+
+Чтобы работать с главной страницей приложения нам нужно создать представление и шаблон в Django. Мы начнём с создания шаблона для главной страницы в каталоге `templates/index.html`, если смотреть из корневой папки проекта. Нам также нужно обновить настройки проекта, касающиеся путей к шаблонам, чтобы он смог обнаружить каталог для шаблонов.
+
+Измените настройку TEMPLATES в файле `ponynote.settings.py`:
+
+```
+TEMPLATES = [
+    {
+        # ... other settings
+        'DIRS': [os.path.join(BASE_DIR, "templates"), ],
+        # ... other settings
+    },
+]
+```
+
+Добавьте следующий код в файл `templates/index.html`:
+
+```
+{% load render_bundle from webpack_loader %}
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Ponynote</title>
+  </head>
+  <body>
+    <div id="root">
+    </div>
+      {% render_bundle 'main' %}
+  </body>
+</html>
+```
+
+В HTML элементе с id - `root` будет располагаться наше приложение React. Тэг render_bundle c аргументом 'main' позволяет вывести в шаблон тэг скрипт для пакета с названием 'main', который создаётся используя нашу конфигурацию Webpack.
+
+Теперь когда готов шаблон, давайте создадим представление. Поскольку здесь используется простой шаблон, мы можем использовать непосредственно `TemplateView` в нашей конфигурации url. В файл проекта `ponynote.urls.py` добавьте:
+
+```
+from django.conf.urls import url
+from django.contrib import admin
+from django.views.generic import TemplateView
+
+urlpatterns = [
+    url(r'^admin/', admin.site.urls),
+    url(r'^', TemplateView.as_view(template_name="index.html")),
+]
+```
+
+Если Вы обновите вашу главную страницу Django в браузере, то увидите страницу с ошибкой и текстом `Are you sure webpack has generated the file and the path is correct?`. Это означает, что `webpack_loader` не смог найти, указанный нами файл в настройках.
+
+![django-error](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part1/django-error.png)
+
+Чтобы сгенерировать этот файл, нам нужно установить плагин `webpack-bundle-tracker` и настроить Webpack так, чтобы он сгенерировал нужные файлы. В каталоге `frontend`, выполните следующие команды:
+
+```
+$ npm install webpack-bundle-tracker --save-dev
+```
+
+В файле `frontend/config/paths.js` добавьте следующую пару ключ-значение в объект `module.exports`:
+
+```
+module.exports = {
+  // ... other values
+  statsRoot: resolveApp('../'),
+}
+```
+
+В `frontend/config/webpack.config.dev.js` измените `publicPath` и `publicUrl` на [http://localhost:3000/](http://localhost:3000/).
+
+```
+const publicPath = 'http://localhost:3000/';
+const publicUrl = 'http://localhost:3000/';
+```
