@@ -136,7 +136,7 @@ $ npm run start
 
 Затем в файл проекта `settings.py` добавьте `webpack_loader` в список `INSTALLED_APPS`:
 
-```
+```python
 WEBPACK_LOADER = {
     'DEFAULT': {
             'BUNDLE_DIR_NAME': 'bundles/',
@@ -149,7 +149,7 @@ WEBPACK_LOADER = {
 
 Измените настройку TEMPLATES в файле `ponynote.settings.py`:
 
-```
+```python
 TEMPLATES = [
     {
         # ... other settings
@@ -223,7 +223,7 @@ const publicUrl = 'http://localhost:3000/';
 
 const BundleTracker = require('webpack-bundle-tracker');
 
-```
+```javascript
 module.exports = {
   entry: [
     // ... НЕ ИЗМЕНЯЙТЕ ДРУГИЕ СТРОКИ В ФАЙЛЕ
@@ -246,7 +246,7 @@ module.exports = {
 
 Добавьте объект `headers` в объект, который возвращается экспортируемой функцией. Этот объект должен располагаться на том же уровне вложенности, что и свойства `https` и `host`.
 
-```
+```javascript
 headers: {
   'Access-Control-Allow-Origin': '*'
 },
@@ -256,7 +256,7 @@ headers: {
 
 Теперь любые изменения, производимые Вами в файле `src/App.js`, будут мгновенно отображаться в браузере, благодаря возможности производить замены налету. Произведите следующие изменения в файле `src/App.js`:
 
-```
+```javascript
 import React, { Component } from 'react';
 import logo from './logo.svg';
 import './App.css';
@@ -292,7 +292,7 @@ export default App;
 
 Начнём с создания файла `ponynote/production_settings.py` в том же каталоге проекта, что и `settings.py`. Для этого проекта, продакшен сервер будет использовать следующий файл с настройками:
 
-```
+```python
 from .settings import *
 
 STATICFILES_DIRS = [
@@ -317,7 +317,7 @@ $ mkdir -p assets/bundles
 
 После создания каталога измените каталог, в который Webpack помещает результат сборки, на `assets/bundles`. В файле `frontend/config/paths.js` измените значение `appBuild`:
 
-```
+```javascript
 // измените файл после его извлечения: он должен находится в ./config/
 module.exports = {
   // ... НЕ ИЗМЕНЯЙТЕ ДРУГИЕ ЗНАЧЕНИЯ
@@ -327,7 +327,7 @@ module.exports = {
 
 Теперь в файле `frontend/config/webpack.config.prod.js` произведите следующие изменения:
 
-```
+```javascript
 const BundleTracker = require('webpack-bundle-tracker');
 
 const publicPath = "/static/bundles/";
