@@ -84,7 +84,7 @@ export default class PonyNote extends Component {
 
 В файл `NotFound.jsx` добавьте:
 
-```javascript
+```jsx
 import React from 'react';
 
 
