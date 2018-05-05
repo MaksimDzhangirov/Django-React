@@ -199,7 +199,7 @@ let store = createStore(ponyApp);
 
 После создания store нам необходимо обернуть корневой компонент нашего React приложения в компонент `Provider` `react-redux` и передать в него `store`, чтобы он мог его использовать. Окончательная версия App.js будет выглядеть так:
 
-```
+```jsx
 import React, { Component } from 'react';
 import {Route, Switch, BrowserRouter} from 'react-router-dom';
 
@@ -346,3 +346,160 @@ export const deleteNote = id => {
 }
 ```
 
+Каждая из приведенных выше функций возвращает объект со свойством `type`, используя которое reducer определяет ~как~ именно нужно обновить состояние. Кроме свойства `type` эти данные могут содержать любое свойство со значением, которое может быть в дальнейшем использовано внутри функции reducer при модификации состояния.
+
+Обновим файл `actions/index.js` так, чтобы мы имели доступ ко всем actions в одном файле:
+
+```jsx
+import * as notes from "./notes";
+
+export {notes}
+```
+
+## Используем Actions внутри компонента
+
+После того как определены actions, мы можем использовать их внутри компонента `PonyNote`, объявив свойства в функции `mapDispatchToProps`.
+
+Обновите функцию `mapDispatchToProps`, чтобы в ней использовались следующие действия:
+
+```jsx
+import {notes} from "../actions";
+
+const mapDispatchToProps = dispatch => {
+  return {
+    addNote: (text) => {
+      dispatch(notes.addNote(text));
+    },
+    updateNote: (id, text) => {
+      dispatch(notes.addNote(id, text));
+    },
+    deleteNote: (id) => {
+      dispatch(notes.deleteNote(id));
+    },
+  }
+}
+```
+
+Теперь все эти actions доступны внутри компонента через `this.props`.
+
+## Создаём UI элементы для actions
+
+Давайте начнём с создания формы для добавления новых заметок к состоянию notes Redux. В компоненте `PonyNote` объявите метод `state` и `submitNote`.
+
+```jsx
+state = {
+  text: ""
+}
+
+submitNote = (e) => {
+  e.preventDefault();
+  this.props.addNote(this.state.text);
+  this.setState({text: ""});
+}
+```
+
+Внутри компонента добавьте HTML форму для ввода текста и сохранения заметки:
+
+```jsx
+<h3>Add new note</h3>
+<form onSubmit={this.submitNote}>
+  <input
+    value={this.state.text}
+    placeholder="Enter note here..."
+    onChange={(e) => this.setState({text: e.target.value})}
+    required />
+  <input type="submit" value="Save Note" />
+</form>
+```
+
+Вышеприведенный код сохранит текст записки в состоянии компонента при отправке формы. При вызове `onSubmit` приложение отправит action `ADD_NOTE`, которое в последствии добавит заметку к Redux состоянию.
+
+Подобным образом мы можем добавить возможность удалять заметки при нажатии кнопки "Delete". Замените содержимое `tbody` на следующее:
+
+```jsx
+{this.props.notes.map((note, id) => (
+  <tr key={`note_${id}`}>
+    <td>{note.text}</td>
+    <td><button>edit</button></td>
+    <td><button onClick={() => this.props.deleteNote(id)}>delete</button></td>
+  </tr>
+))}
+```
+
+Для того чтобы можно было обновлять заметки нам нужно ввести некоторые дополнительные изменения в наше состояние компонента и элемент формы, чтобы оно поддерживало одновременно создание и обновление заметок.
+
+```jsx
+state = {
+  text: "",
+  updateNoteId: null,
+}
+
+resetForm = () => {
+  this.setState({text: "", updateNoteId: null});
+}
+
+selectForEdit = (id) => {
+  let note = this.props.notes[id];
+  this.setState({text: note.text, updateNoteId: id});
+}
+
+submitNote = (e) => {
+  e.preventDefault();
+  if (this.state.updateNoteId === null) {
+    this.props.addNote(this.state.text);
+  } else {
+    this.props.updateNote(this.state.updateNoteId, this.state.text);
+  }
+  this.resetForm();
+}
+```
+
+Состояние компонента теперь может определить создаём или обновляем ли мы заметку, а метод `submitNote` изменяет своё поведение в зависимости от состояния компонента. Мы также добавили вспомогательный метод для загрузки данных в форму и сброса данных формы при обновлении заметки.
+
+Внутри элемента формы добавьте кнопку для сброса данных формы, если заметка, которую нужно отредактировать, была выбрана по ошибке.
+
+```jsx
+<button onClick={this.resetForm}>Reset</button>
+```
+
+Обновите код внутри кнопки Edit, чтобы при нажатии на неё загружались данные заметки, выбранной для редактирования:
+
+```jsx
+<td><button onClick={() => this.selectForEdit(id)}>edit</button></td>
+```
+
+После этого мы получил простое веб-приложение для заметок, позволяющее добавлять, редактировать и удалять заметки. Оно должно выглядеть примерно следующим образом:
+
+[!redux-working-webapp](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part2/redux-working-webapp.png)
+
+## Добавляем немного css
+
+Перед тем как продолжить, давайте добавим немного css стилей, чтобы улучшить внешний вид нашего приложения. Для этого мы будем использовать [sakura.css](https://github.com/oxalorg/sakura), ту же библиотеку, не использующую классы, которая применялась при создании этого блога!
+
+Начните с загрузки `normalize.css` и `sakura.css` в каталог `css` корневой папки фронтэнда.
+
+```
+$ mkdir css
+$ cd css
+$ wget https://raw.githubusercontent.com/oxalorg/sakura/master/css/normalize.css
+$ wget wget https://raw.githubusercontent.com/oxalorg/sakura/master/css/sakura.css
+```
+
+После этого добавьте в файл `index.css` следующие строки для импорта этих css файлов:
+
+```css
+@import url("css/normalize.css");
+@import url("css/sakura.css");
+```
+
+Теперь наше приложении выглядит намного лучше!
+
+[!sakura](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part2/sakura.png)
+
+Поскольку мы спроектировали работоспособную клиентскую часть нашего веб-приложения, но она не сохраняет введённые данные, в [следующей части](http://v1k45.com/blog/modern-django-part-3-creating-an-api-and-integrating-with-react/) мы создадим модели и API в Django для хранения и обработки заметок, используя базу данных, чтобы полученные от пользователя данные не терялись.
+
+Ссылки
+
+* [Пример реализации списка задач с помощью Redux](https://redux.js.org/basics/example-todo-list)
+* [Документация react-router-dom](https://reacttraining.com/react-router/web/guides/philosophy)
+* [Блок-схема потока данных в Redux](https://medium.com/@abhayg772/introduction-to-redux-using-react-native-a8f1e8778333)
