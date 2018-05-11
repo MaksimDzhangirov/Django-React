@@ -128,7 +128,7 @@ urlpatterns = [
 ]
 ```
 
-После этого Вы сможете осуществлять запросы к API заметок, используя curl или Ваш любымый http клиент, такой как `Postman` или `Insomnia`.
+После этого Вы сможете осуществлять запросы к API заметок, используя curl или Ваш любимый http клиент, такой как `Postman` или `Insomnia`.
 
 ## Тестируем работу API
 
@@ -174,3 +174,127 @@ curl --request DELETE \
 Чтобы можно было получать и работать с заметками в бекэнде из фронтэнда, нам нужно добавить в проект несколько библиотек. Чтобы получать заметки, мы будем использовать `whatwg-fetch` (уже добавлено в `create-react-app`) и `redux-thunk` для асинхронного создания action.
 
 ## Что такое `redux-thunk`?
+
+Связующее программное обеспечение (middleware) Redux Thunk позволяет Вам писать actions, которые возвращают функцию вместо action. Thunk может использоваться, чтобы задержать отправку action или осуществления отправки только при выполнении определенных условий. Функция внутри Thunk принимает в качестве аргументов методы store и getState.
+
+## Установка и настройка redux-thunk
+
+```
+$ npm install redux-thunk --save
+```
+
+Затем в файле `App.js` импортируйте функции `thunk` и `applyMiddleware`, передайте их в функцию `createStore`, после чего можно использовать Redux Thunk.
+
+```jsx
+import { createStore, applyMiddleware } from "redux";
+import thunk from "redux-thunk";
+
+let store = createStore(ponyApp, applyMiddleware(thunk));
+```
+
+## Асинхронные Redux actions
+
+Давайте создадим наше первое асинхронное action, используя Redux Thunk. Добавьте следующую функцию в `actions/notes.js`:
+
+```jsx
+export const fetchNotes = () => {
+  return dispatch => {
+    let headers = {"Content-Type": "application/json"};
+    return fetch("/api/notes/", {headers, })
+      .then(res => res.json())
+      .then(notes => {
+        return dispatch({
+          type: 'FETCH_NOTES',
+          notes
+        })
+      })
+  }
+}
+```
+
+Вышеприведенный код осуществит API вызов Django приложения по адресу `api/notes/` и отправит action `FETCH_NOTES`, когда получит ответ.
+
+Теперь обработаем это action в reducer `reducers/notes.js` добавив оператор case `FETCH_NOTES` в управляющую инструкцию `switch`:
+
+```jsx
+case 'FETCH_NOTES':
+    return [...state, ...action.notes];
+```
+
+Поскольку мы планируем использовать серверную базу данных для заметок, давайте в качестве начального значения для `initialState` будем использовать пустой массив удалив из него фиктивную заметку.
+
+```jsx
+const initialState = [];
+```
+
+## Используем асинхронное action в компоненте
+
+Использование этого action ничем не отличается от использования обычного action. Просто добавьте его в `mapDispatchToProps`.
+
+```jsx
+const mapDispatchToProps = dispatch => {
+  return {
+    fetchNotes: () => {
+      dispatch(notes.fetchNotes());
+    },
+  }
+}
+```
+
+Добавьте вызов этого action, когда компонент монтируется, таким образом заметки будут извлекаться из API и загружаться в Redux store. Добавьте метод `componentDidMount` в класс `PonyNote`:
+
+```jsx
+componentDidMount() {
+    this.props.fetchNotes();
+}
+```
+
+После перезагрузки страницы Вы должны увидеть список заметок, который Вы создали, используя непосредственно API. Если Вы ещё этого не сделали, давайте подсоединим action `addNote` к API, чтобы мы могли просматривать заметки, полученные непосредственно из базы данных.
+
+## Добавление заметок, используя вызов API
+
+Давайте обновим action `addNote` в файле `actions/notes.js`, чтобы оно могло послать `POST` запрос в API заметок:
+
+```jsx
+export const addNote = text => {
+  return dispatch => {
+    let headers = {"Content-Type": "application/json"};
+    let body = JSON.stringify({text, });
+    return fetch("/api/notes/", {headers, method: "POST", body})
+      .then(res => res.json())
+      .then(note => {
+        return dispatch({
+          type: 'ADD_NOTE',
+          note
+        })
+      })
+  }
+}
+```
+
+В вышеприведенной функции-action наше приложение пошлет `POST` запрос с JSON данными текста заметки и затем отправит `ADD_NOTE` action, которое вставит новую добавленную заметку в Redux store. В файле `reducers/notes.js` обновите оператор case `ADD_NOTE` добавив в него весь объект note вместо только текста.
+
+```jsx
+case 'ADD_NOTE':
+    return [...state, action.note];
+```
+
+После этого немного измените наш компонент `PonyNote.jsx` так, чтобы данные нашей формы сбрасывались после успешного создания заметки.
+
+Добавьте оператор `return` к вызову action, чтобы мы могли добавлять дополнительные функции обратного вызова при вызове API promise.
+
+```jsx
+addNote: (text) => {
+    return dispatch(notes.addNote(text));
+},
+```
+
+Обновите метод `submitNote`, переместив вызов `this.resetForm()` из нижней части функции в функцию обратного вызова для `addNote`:
+
+```jsx
+this.props.addNote(this.state.text).then(this.resetForm)
+```
+
+Подобным образом Вы можете отлавливать (`catch`) любые ошибки, генерируемые promise, обрабатывать ошибки API и показывать их с помощью UI. Чтобы упростить нашу задачу, мы не будем касаться этой темы.
+
+## Обновляем заметки
