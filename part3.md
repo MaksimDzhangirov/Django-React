@@ -298,3 +298,101 @@ this.props.addNote(this.state.text).then(this.resetForm)
 Подобным образом Вы можете отлавливать (`catch`) любые ошибки, генерируемые promise, обрабатывать ошибки API и показывать их с помощью UI. Чтобы упростить нашу задачу, мы не будем касаться этой темы.
 
 ## Обновляем заметки
+
+Action для обновления заметок очень похож на action `addNote`, который тоже вызывает API. Всё что нам нужно сделать - это передать note.id в url конечной точки.
+
+Обновите action `updateNote` в `actions/notes.js`:
+
+```jsx
+export const updateNote = (index, text) => {
+  return (dispatch, getState) => {
+
+    let headers = {"Content-Type": "application/json"};
+    let body = JSON.stringify({text, });
+    let noteId = getState().notes[index].id;
+
+    return fetch(`/api/notes/${noteId}/`, {headers, method: "PUT", body})
+      .then(res => res.json())
+      .then(note => {
+        return dispatch({
+          type: 'UPDATE_NOTE',
+          note,
+          index
+        })
+      })
+  }
+}
+```
+
+Заметьте, что первый аргумент `updateNote` - `index`, а не `id`, это сделано для того, чтобы легко получать заметку, которую нужно обновить. Также мы получаем аргумент `getState` для функции возврата action, он используется, чтобы получить текущее состояние приложения. Мы используем его, чтобы получить `note.id`, используя `index`, который у нас есть.
+
+Ещё одно важный момент заключается в том, что метод, используемый для запроса - `PUT`, который означает, что нужно обновить ресурс на сервере. В последнем action у нас есть index и только что обновленныя заметка, которую мы будем использовать в reducer.
+
+Обновите оператор case `UPDATE_NOTE` в `redcers/notes.js`:
+
+```jsx
+case 'UPDATE_NOTE':
+    let noteToUpdate = noteList[action.index]
+    noteToUpdate.text = action.note.text;
+    noteList.splice(action.index, 1, noteToUpdate);
+    return noteList;
+```
+
+В `PonyNote.jsx`, обновите методы `mapDispatchToProps` and `submitNote`, как мы делали это для добавления заметок.
+
+```jsx
+updateNote: (id, text) => {
+    return dispatch(notes.updateNote(id, text));
+},
+```
+
+```jsx
+this.props.updateNote(this.state.updateNoteId, this.state.text).then(this.resetForm);
+```
+
+Теперь Вы можете обновлять заметки и сохранять их в базе данных.
+
+## Удаление заметок
+
+Обновим action `deleteNote` в файле `actions/notes.js`, чтобы послать запрос `DELETE` API серверу:
+
+```jsx
+export const deleteNote = index => {
+  return (dispatch, getState) => {
+
+    let headers = {"Content-Type": "application/json"};
+    let noteId = getState().notes[index].id;
+
+    return fetch(`/api/notes/${noteId}/`, {headers, method: "DELETE"})
+      .then(res => {
+        if (res.ok) {
+          return dispatch({
+            type: 'DELETE_NOTE',
+            index
+          })
+        }
+      })
+  }
+}
+```
+
+В reducer `DELETE_NOTE` из файла `reducers/notes.js` внесите следующие изменения:
+
+```jsx
+case 'DELETE_NOTE':
+    noteList.splice(action.index, 1);
+    return noteList;
+```
+
+## Резюме
+
+Теперь Вы можете создавать, считывать, обновлять и удалять заметки, используя API, спроектированное используя  django-rest-framework. Все заметки хранятся в Redux store на стороне клиента и изменения будут заносится в базу и сохраняться при перезагрузке.
+
+В следующей части мы добавим аутентификацию в Pony Note, чтобы каждый пользователь мог хранить свои заметки отдельно от заметок других пользователей. Мы реализуем возможность входа в систему/регистрации и свяжем заметки с пользователями.
+
+## Ссылки
+
+* [Django Rest Framework](http://www.django-rest-framework.org/)
+* [redux-thunk](https://github.com/gaearon/redux-thunk)
+* [Как отправить Redux action с задержкой](https://stackoverflow.com/a/35415559/4726598)
+* [Асинхронные Redux actions](https://redux.js.org/advanced/async-actions#async-action-creators)
