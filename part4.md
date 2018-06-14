@@ -90,7 +90,7 @@ Running migrations:
 
 ## Создаём API для регистрации
 
-Чтобы позволить пользователям создавать аккаунты, мы создадим API для регистрации. В идеале Вы должны использовать многофункциональные сторонние приложения, такие как allauth, rest-auth, djoser и т.д. для обработки различных способов аутентификации. Но поскольку мы разрабатываем простое приложение, мы создадим свои собственные представления/конечные точки.
+Чтобы позволить пользователям создавать аккаунты, мы создадим API для регистрации. В идеале Вы должны использовать многофункциональные сторонние приложения, такие как `allauth`, `rest-auth`, `djoser` и т.д. для обработки различных способов аутентификации. Но поскольку мы разрабатываем простое приложение, мы создадим свои собственные представления/конечные точки.
 
 Начнём с создания `CreateUserSerializer` и `UserSerializer` в `notes/serializers.py`:
 
@@ -179,3 +179,150 @@ $ curl --request POST \
 
 ## Создаём API для входа в систему
 
+Теперь когда пользователи могут создать учётную запись, нам нужно API позволяющее пользователям входить в приложение и получать токен аутентификации для выполнения пользовательских действий.
+
+Сначала создадим `LoginUserSerializer` в `notes/serializers.py`:
+
+```python
+from django.contrib.auth import authenticate
+
+
+class LoginUserSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
+
+    def validate(self, data):
+        user = authenticate(**data)
+        if user and user.is_active:
+            return user
+        raise serializers.ValidationError("Unable to log in with provided credentials.")
+```
+
+Метод `validate` этого сериализатора проверяет правильность комбинации имени пользователя и пароля, используя функцию `authenticate` Django. Он также гарантирует, что пользователь активен.
+
+затем создайте `LoginAPI` в `notes/api.py`:
+
+```python
+from .serializers import (NoteSerializer, CreateUserSerializer,
+                          UserSerializer, LoginUserSerializer)
+
+
+class LoginAPI(generics.GenericAPIView):
+    serializer_class = LoginUserSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data
+        return Response({
+            "user": UserSerializer(user, context=self.get_serializer_context()).data,
+            "token": AuthToken.objects.create(user)
+        })
+```
+
+После этого добавьте API к списку конечных точек API в `notes/endpoints.py`:
+
+```python
+from .api import NoteViewSet, RegistrationAPI, LoginAPI
+
+urlpatterns = [
+    url("^", include(router.urls)),
+    url("^auth/register/$", RegistrationAPI.as_view()),
+    url("^auth/login/$", LoginAPI.as_view()),
+]
+```
+
+Это позволит использовать наше API для входа в систему через конечные точки. Мы можем протестировать его с помощью curl:
+
+```
+$ curl --request POST \
+  --url http://localhost:8000/api/auth/login/ \
+  --header 'content-type: application/json' \
+  --data '{
+    "username": "user1",
+    "password": "hunter2"
+}'
+```
+
+## Конечная точка для получения данных пользователя
+
+Теперь, когда API для регистрации и входа в систему работает, нам необходимо API, возвращающее данные залогиненного пользователя. Мы будем использовать это API, чтобы определить залогинен ли пользователь и получения его токена для осуществления вызовов API, связанных с конкретным пользователем.
+
+Поскольку у нас уже есть `UserSerializer`, мы можем сразу создать `UserAPI` и добавить его в конечные точки.
+
+Вставьте следующий код в `notes/api.py`:
+
+```python
+class UserAPI(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated, ]
+    serializer_class = UserSerializer
+
+    def get_object(self):
+        return self.request.user
+```
+
+Вышеприведенное API возвратит данные пользователя для аутентифицированного пользователя либо ошибку из диапазона 4ХХ, если  пользователь не аутентифицирован или использовался неправильный токен.
+
+Добавьте API в `notes/endpoints.py`:
+
+```python
+from .api import NoteViewSet, RegistrationAPI, LoginAPI, UserAPI
+
+urlpatterns = [
+    url("^", include(router.urls)),
+    url("^auth/register/$", RegistrationAPI.as_view()),
+    url("^auth/login/$", LoginAPI.as_view()),
+    url("^auth/user/$", UserAPI.as_view()),
+]
+```
+
+Вы можете протестировать API, используя токен аутентификации, который получили из `LoginAPI`:
+
+```
+$ curl --request GET \
+  --url http://localhost:8000/api/auth/user/ \
+  --header 'authorization: Token YOUR_API_TOKEN_HERE' \
+  --header 'content-type: application/json' \
+```
+
+Вышеприведенный запрос возвратит объект с данными аутентифицированного пользователя.
+
+## Разрешаем доступ к NotesAPI только аутентифицированным пользователям
+
+Теперь, когда все API, связанные с аутентификацией работают, мы можем обновить `NoteViewSet` и `NoteSerializer`, чтобы ограничить разрешить доступ к ним только для аутентифицированных пользователей.
+
+Начнём с обновления `NoteViewSet` в `notes/api.py`:
+
+```python
+class NoteViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated, ]
+    serializer_class = NoteSerializer
+
+    def get_queryset(self):
+        return self.request.user.notes.all()
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+```
+
+Мы осуществили следующие изменения в нём:
+
+* Изменили доступ к API с `AllowAny` на `IsAuthenticated`. Это потребует от пользователей войти в систему/послать токен аутентификации, чтобы воспользоваться этим API.
+* Переопределили метод `perform_create`, чтобы сохранить владельца заметки при её создании.
+* Заменили атрибут `queryset` на метод `get_queryset`, который будет возвращать все заметки, которыми владеет аутентифицированный пользователь.
+
+После этого обновить маршрутизатор для регистрации заметок, добавив `base_name`. Он необходим в случае, когда набор представлений не содержит атрибута `queryset`:
+
+```
+router.register('notes', NoteViewSet, 'notes')
+```
+
+Это гарантирует, что API для заметок будет доступно только для аутентифицированных пользователей и пользователи смогут видеть и изменять только свои собственные заметки.
+
+## Добавляем аутентификацию в React приложение
+
+Блок-схема аутентификации в React приложении  будет очень простой, мы перенаправляем пользователя на страницу входа в систему, если он не залогинен и перенаправляем его на страницу с заметками после успешного входа в систему.
+
+![auth-react](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part4/auth-react.png)
+
+## Страница для входа в систему
