@@ -326,3 +326,572 @@ router.register('notes', NoteViewSet, 'notes')
 ![auth-react](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part4/auth-react.png)
 
 ## Страница для входа в систему
+
+Начнём с создания пока не рабочей страницы для входа в систему, на которую мы будем перенаправлять неаутентифицированных пользователей.
+
+Создайте `frontend/src/components/Login.jsx`:
+
+```jsx
+import React, {Component} from "react";
+import {connect} from "react-redux";
+
+import {Link} from "react-router-dom";
+
+
+class Login extends Component {
+
+  state = {
+    username: "",
+    password: "",
+  }
+
+  onSubmit = e => {
+    e.preventDefault();
+    console.error("Not implemented!!1");
+  }
+
+  render() {
+    return (
+      <form onSubmit={this.onSubmit}>
+        <fieldset>
+          <legend>Login</legend>
+          <p>
+            <label htmlFor="username">Username</label>
+            <input
+              type="text" id="username"
+              onChange={e => this.setState({username: e.target.value})} />
+          </p>
+          <p>
+            <label htmlFor="password">Password</label>
+            <input
+              type="password" id="password"
+              onChange={e => this.setState({password: e.target.value})} />
+          </p>
+          <p>
+            <button type="submit">Login</button>
+          </p>
+
+          <p>
+            Don't have an account? <Link to="/register">Register</Link>
+          </p>
+        </fieldset>
+      </form>
+    )
+  }
+}
+
+const mapStateToProps = state => {
+  return {};
+}
+
+const mapDispatchToProps = dispatch => {
+  return {};
+}
+
+export default connect(mapStateToProps, mapDispatchToProps)(Login);
+```
+
+Затем добавьте маршрут для входа в систему в App.js:
+
+```jsx
+import Login from "./components/Login";
+
+class App extends Component {
+  render() {
+    return (
+      <Provider store={store}>
+        <BrowserRouter>
+          <Switch>
+            <Route exact path="/" component={PonyNote} />
+            <Route exact path="/login" component={Login} />
+            <Route component={NotFound} />
+          </Switch>
+        </BrowserRouter>
+      </Provider>
+    );
+  }
+}
+
+export default App;
+```
+
+Затем перейдите по адресу [localhost:8000/login](http://localhost:8000/login), чтобы увидеть страницу для входа в систему:
+
+![login](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part4/login.png)
+
+## Actions и reducers для аутентификации
+
+Чтобы страница входа в систему заработала и для разрешения доступа к странице с заметками только аутентифицированным пользователям, нам нужно добавить несколько actions и аутентификационный reducer. 
+
+## Аутентификационный reducer
+
+Начните с создания файла `auth.js` в `frontend/src/reducers/` и добавьте код reducer:
+
+```jsx
+const initialState = {
+  token: localStorage.getItem("token"),
+  isAuthenticated: null,
+  isLoading: true,
+  user: null,
+  errors: {},
+};
+
+
+export default function auth(state=initialState, action) {
+
+  switch (action.type) {
+
+    case 'USER_LOADING':
+      return {...state, isLoading: true};
+
+    case 'USER_LOADED':
+      return {...state, isAuthenticated: true, isLoading: false, user: action.user};
+
+    case 'LOGIN_SUCCESSFUL':
+      localStorage.setItem("token", action.data.token);
+      return {...state, ...action.data, isAuthenticated: true, isLoading: false, errors: null};
+
+    case 'AUTHENTICATION_ERROR':
+    case 'LOGIN_FAILED':
+    case 'LOGOUT_SUCCESSFUL':
+      localStorage.removeItem("token");
+      return {...state, errors: action.data, token: null, user: null,
+        isAuthenticated: false, isLoading: false};
+
+    default:
+      return state;
+  }
+}
+```
+
+Заметили, что значение токена было получено из `localStorage`? Мы будем хранить токен аутентификации в localStorage и затем загружать его в `auth` reducer при начальной загрузке. Это поможет нам хранить аутентификационное состояние пользователя даже если он закроет окно браузера.
+
+Мы работаем с пользовательскими actions загрузки и входа в систему. Если вход в систему выполнен успешно, reducer обновит localStorage и redux токен. Если вход в систему завершается с ошибкой, пользователь выходит из системы или приложение генерирует ошибки, связанные с аутентификацией, reducer удаляет токен аутентификации, сохраняет ошибки и устанавливает соответствующее состояние входа в систему.
+
+Добавьте этот reducer в `reducers/index.js`:
+
+```jsx
+import auth from "./auth";
+
+const ponyApp = combineReducers({
+  notes, auth,
+})
+```
+
+## Actions, связанные с аутентификацией
+
+Создайте `frontend/src/actions/auth.js` и добавьте action `loadUser` в него:
+
+```jsx
+export const loadUser = () => {
+  return (dispatch, getState) => {
+    dispatch({type: "USER_LOADING"});
+
+    const token = getState().auth.token;
+
+    let headers = {
+      "Content-Type": "application/json",
+    };
+
+    if (token) {
+      headers["Authorization"] = `Token ${token}`;
+    }
+    return fetch("/api/auth/user/", {headers, })
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 200) {
+          dispatch({type: 'USER_LOADED', user: res.data });
+          return res.data;
+        } else if (res.status >= 400 && res.status < 500) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+```
+
+В вышеприведенном action мы посылаем в заголовке Authorization токен, хранящийся в redux store. Если этот токен существует и верный, то API вернет объект с данными пользователя, в противном случае, мы вызываем action `AUTHENTICATION_ERROR`.
+
+Обновите `frontend/src/actions/index.js`, добавив `auth.js`:
+
+```jsx
+import * as notes from "./notes";
+import * as auth from "./auth";
+
+export {notes, auth}
+```
+
+## Ограничиваем доступ для неавторизованных пользователей
+
+Чтобы неаутентифицированные пользователи не могли получить доступ к страницам, которые доступны только залогиченным пользователям, мы должны перенаправлять такие запросы на страницу входа в систему.
+
+Для этого мы создадим метод `PrivateRoute`, который отображает указанный компонент только в том случае, если пользователь аутентифицирован.
+
+Обновите файл `frontend/src/App.js`:
+
+```jsx
+import React, { Component } from 'react';
+import {Route, Switch, BrowserRouter, Redirect} from 'react-router-dom';
+
+import { Provider, connect } from "react-redux";
+import { createStore, applyMiddleware } from "redux";
+import thunk from "redux-thunk";
+
+import {auth} from "./actions";
+import ponyApp from "./reducers";
+
+import PonyNote from "./components/PonyNote";
+import NotFound from "./components/NotFound";
+import Login from "./components/Login";
+
+let store = createStore(ponyApp, applyMiddleware(thunk));
+
+class RootContainerComponent extends Component {
+
+  componentDidMount() {
+    this.props.loadUser();
+  }
+
+  PrivateRoute = ({component: ChildComponent, ...rest}) => {
+    return <Route {...rest} render={props => {
+      if (this.props.auth.isLoading) {
+        return <em>Loading...</em>;
+      } else if (!this.props.auth.isAuthenticated) {
+        return <Redirect to="/login" />;
+      } else {
+        return <ChildComponent {...props} />
+      }
+    }} />
+  }
+
+  render() {
+    let {PrivateRoute} = this;
+    return (
+      <BrowserRouter>
+        <Switch>
+          <PrivateRoute exact path="/" component={PonyNote} />
+          <Route exact path="/login" component={Login} />
+          <Route component={NotFound} />
+        </Switch>
+      </BrowserRouter>
+    );
+  }
+}
+
+const mapStateToProps = state => {
+  return {
+    auth: state.auth,
+  }
+}
+
+const mapDispatchToProps = dispatch => {
+  return {
+    loadUser: () => {
+      return dispatch(auth.loadUser());
+    }
+  }
+}
+
+let RootContainer = connect(mapStateToProps, mapDispatchToProps)(RootContainerComponent);
+
+export default class App extends Component {
+  render() {
+    return (
+      <Provider store={store}>
+        <RootContainer />
+      </Provider>
+    )
+  }
+}
+```
+
+В вышеприведенном коде, мы переместили код после `Provider` в отдельный компонент под названием `RootContainerComponent`.
+
+Как следует из названия `RootContainerComponent` - это корневой контейнер приложения и он подсоединен к redux store. Он содержит метод `PrivateRoute`, который выводит разное содержимое на страницу при совпадении маршрута в зависимости от состояния `isAuthenticated` приложения. Если пользователь не вошел в систему, то его перенаправляет на страницу `/login`.
+
+`RootContainer` затем используется внутри компонента `App` и находится внутри компонента `Provider`.
+
+После этого, если вы захотите перейти на страницу с заметками ([http://localhost:8000/](http://localhost:8000/)), Вас перенаправит на страницу входа в систему.
+
+## Создание страницы входа в систему
+
+Мы уже защитили наше приложение от несанкционированный доступ к странице заметок, но у нас по-прежнему нет функции входа в систему, позволяющей аутентифицированным пользователям получить доступ к странице.
+
+Для этого создайте функцию `login` в файле `frontend/src/actions/auth.js`:
+
+```jsx
+export const login = (username, password) => {
+  return (dispatch, getState) => {
+    let headers = {"Content-Type": "application/json"};
+    let body = JSON.stringify({username, password});
+
+    return fetch("/api/auth/login/", {headers, body, method: "POST"})
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 200) {
+          dispatch({type: 'LOGIN_SUCCESSFUL', data: res.data });
+          return res.data;
+        } else if (res.status === 403 || res.status === 401) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        } else {
+          dispatch({type: "LOGIN_FAILED", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+```
+
+После этого отредактируйте файл `frontend/src/components/Login.jsx`, чтобы можно было использовать только что созданное action:
+
+```jsx
+import {Link, Redirect} from "react-router-dom";
+
+import {auth} from "../actions";
+
+class Login extends Component {
+
+  onSubmit = e => {
+    e.preventDefault();
+    this.props.login(this.state.username, this.state.password);
+  }
+
+  render() {
+    if (this.props.isAuthenticated) {
+      return <Redirect to="/" />
+    }
+    return (
+      <form onSubmit={this.onSubmit}>
+        <fieldset>
+          <legend>Login</legend>
+          {this.props.errors.length > 0 && (
+            <ul>
+              {this.props.errors.map(error => (
+                <li key={error.field}>{error.message}</li>
+              ))}
+            </ul>
+          )}
+          {/*KEEP THE OTHER ELEMENTS*/}
+        </fieldset>
+      </form>
+    )
+  }
+}
+
+const mapStateToProps = state => {
+  let errors = [];
+  if (state.auth.errors) {
+    errors = Object.keys(state.auth.errors).map(field => {
+      return {field, message: state.auth.errors[field]};
+    });
+  }
+  return {
+    errors,
+    isAuthenticated: state.auth.isAuthenticated
+  };
+}
+
+const mapDispatchToProps = dispatch => {
+  return {
+    login: (username, password) => {
+      return dispatch(auth.login(username, password));
+    }
+  };
+}
+
+export default connect(mapStateToProps, mapDispatchToProps)(Login);
+```
+
+После этого вы сможете войти в систему со страницы входа и перейти на страницу заметок, если Вы ввели правильные учетные данные.
+
+## Страница регистрации
+
+До сих пор для создания пользователей мы использовали непосредственно API регистрации. Поскольку у нас есть все actions и reducers, мы также можем создать страницу регистрации.
+
+Начните с создания файла `frontend/src/components/Register.jsx` и добавьте в него следующий код:
+
+```jsx
+import React, {Component} from "react";
+import {connect} from "react-redux";
+
+import {Link, Redirect} from "react-router-dom";
+
+import {auth} from "../actions";
+
+class Login extends Component {
+
+  state = {
+    username: "",
+    password: "",
+  }
+
+  onSubmit = e => {
+    e.preventDefault();
+    this.props.register(this.state.username, this.state.password);
+  }
+
+  render() {
+    if (this.props.isAuthenticated) {
+      return <Redirect to="/" />
+    }
+    return (
+      <form onSubmit={this.onSubmit}>
+        <fieldset>
+          <legend>Register</legend>
+          {this.props.errors.length > 0 && (
+            <ul>
+              {this.props.errors.map(error => (
+                <li key={error.field}>{error.message}</li>
+              ))}
+            </ul>
+          )}
+          <p>
+            <label htmlFor="username">Username</label>
+            <input
+              type="text" id="username"
+              onChange={e => this.setState({username: e.target.value})} />
+          </p>
+          <p>
+            <label htmlFor="password">Password</label>
+            <input
+              type="password" id="password"
+              onChange={e => this.setState({password: e.target.value})} />
+          </p>
+          <p>
+            <button type="submit">Register</button>
+          </p>
+
+          <p>
+            Already have an account? <Link to="/login">Login</Link>
+          </p>
+        </fieldset>
+      </form>
+    )
+  }
+}
+
+const mapStateToProps = state => {
+  let errors = [];
+  if (state.auth.errors) {
+    errors = Object.keys(state.auth.errors).map(field => {
+      return {field, message: state.auth.errors[field]};
+    });
+  }
+  return {
+    errors,
+    isAuthenticated: state.auth.isAuthenticated
+  };
+}
+
+const mapDispatchToProps = dispatch => {
+  return {
+    register: (username, password) => dispatch(auth.register(username, password)),
+  };
+}
+
+export default connect(mapStateToProps, mapDispatchToProps)(Login);
+```
+
+Как видно из кода, компонент очень похож на Login.jsx, единственным заметным отличием является использование функции/action `register` вместо `login` и изменения, связанные с версткой.
+
+Добавьте action `register` в `frontend/src/actions/auth.js`:
+
+```jsx
+export const register = (username, password) => {
+  return (dispatch, getState) => {
+    let headers = {"Content-Type": "application/json"};
+    let body = JSON.stringify({username, password});
+
+    return fetch("/api/auth/register/", {headers, body, method: "POST"})
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 200) {
+          dispatch({type: 'REGISTRATION_SUCCESSFUL', data: res.data });
+          return res.data;
+        } else if (res.status === 403 || res.status === 401) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        } else {
+          dispatch({type: "REGISTRATION_FAILED", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+```
+
+Обновите reducers для аутентификации, чтобы обрабатывать actions, связанные с регистрацией. Обновите файл `frontend/src/reducers/auth.js`:
+
+```jsx
+case 'LOGIN_SUCCESSFUL':
+case 'REGISTRATION_SUCCESSFUL':
+    localStorage.setItem("token", action.data.token);
+    return {...state, ...action.data, isAuthenticated: true, isLoading: false, errors: null};
+
+case 'AUTHENTICATION_ERROR':
+case 'LOGIN_FAILED':
+case 'REGISTRATION_FAILED':
+case 'LOGOUT_SUCCESSFUL':
+    localStorage.removeItem("token");
+    return {...state, errors: action.data, token: null, user: null,
+        isAuthenticated: false, isLoading: false};
+```
+
+Обновите операторы case, добавив action `REGISTRATION_SUCCESSFUL` и `REGISTRATION_FAILED`.
+
+Добавьте компонент `Register` в список маршрутов маршрутизатора React внутри `RootContainerComponent` файла `App.js`:
+
+```jsx
+import Register from "./components/Register";
+
+class RootContainerComponent extends Component {
+
+  render() {
+    let {PrivateRoute} = this;
+    return (
+      <BrowserRouter>
+        <Switch>
+          <PrivateRoute exact path="/" component={PonyNote} />
+          <Route exact path="/register" component={Register} />
+          <Route exact path="/login" component={Login} />
+          <Route component={NotFound} />
+        </Switch>
+      </BrowserRouter>
+    );
+  }
+}
+```
+
+Теперь вы сможете зарегистрироваться, перейдя на [localhost:8000/register](http://localhost:8000/register). Вы также увидите ошибки на странице, если попытаетесь зарегистрироваться, используя уже существующее имя пользователя.
+
+## Использование аутентификации в actions, связанных с заметками
+
