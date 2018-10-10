@@ -895,3 +895,248 @@ class RootContainerComponent extends Component {
 
 ## Использование аутентификации в actions, связанных с заметками
 
+Несмотря на то, что страница входа в систему работает, а страница заметок отображается после входа в систему, основные функции на странице заметок все еще не работают. Это связано с тем, что теперь API-интерфейс заметок требует, чтобы пользователь был залогинен для его использования.
+
+Давайте обновим actions, связанные с заметками, чтобы исправить эту проблему:
+
+Обновите `frontend/src/actions/notes.js`:
+
+```jsx
+export const fetchNotes = () => {
+  return (dispatch, getState) => {
+    let headers = {"Content-Type": "application/json"};
+    let {token} = getState().auth;
+
+    if (token) {
+      headers["Authorization"] = `Token ${token}`;
+    }
+
+    return fetch("/api/notes/", {headers, })
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 200) {
+          return dispatch({type: 'FETCH_NOTES', notes: res.data});
+        } else if (res.status === 401 || res.status === 403) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+
+export const addNote = text => {
+  return (dispatch, getState) => {
+    let headers = {"Content-Type": "application/json"};
+    let {token} = getState().auth;
+
+    if (token) {
+      headers["Authorization"] = `Token ${token}`;
+    }
+
+    let body = JSON.stringify({text, });
+    return fetch("/api/notes/", {headers, method: "POST", body})
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 201) {
+          return dispatch({type: 'ADD_NOTE', note: res.data});
+        } else if (res.status === 401 || res.status === 403) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+
+export const updateNote = (index, text) => {
+  return (dispatch, getState) => {
+
+    let headers = {"Content-Type": "application/json"};
+    let {token} = getState().auth;
+
+    if (token) {
+      headers["Authorization"] = `Token ${token}`;
+    }
+
+    let body = JSON.stringify({text, });
+    let noteId = getState().notes[index].id;
+
+    return fetch(`/api/notes/${noteId}/`, {headers, method: "PUT", body})
+      .then(res => {
+        if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 200) {
+          return dispatch({type: 'UPDATE_NOTE', note: res.data, index});
+        } else if (res.status === 401 || res.status === 403) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+
+export const deleteNote = index => {
+  return (dispatch, getState) => {
+
+    let headers = {"Content-Type": "application/json"};
+    let {token} = getState().auth;
+
+    if (token) {
+      headers["Authorization"] = `Token ${token}`;
+    }
+
+    let noteId = getState().notes[index].id;
+
+    return fetch(`/api/notes/${noteId}/`, {headers, method: "DELETE"})
+      .then(res => {
+        if (res.status === 204) {
+          return {status: res.status, data: {}};
+        } else if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 204) {
+          return dispatch({type: 'DELETE_NOTE', index});
+        } else if (res.status === 401 || res.status === 403) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+```
+
+Вышеприведенный код отсылает токен аутентификации вместе со всеми API запросами, связанными с заметками; соответствующие actions вызываются в зависимости от типа ответа, полученного от сервера.
+
+После этого Вы сможете работать с заметками как пользователь.
+
+## Реализация возможности выхода из системы
+
+Теперь, когда приложение является рабочим, пора добавить стандартную, но тем не менее важную функцию. Чтобы добавить в приложение возможность выхода из системы, начнём с добавления action-функции `logout` в `frontend/src/actions/auth.js`:
+
+```jsx
+export const logout = () => {
+  return (dispatch, getState) => {
+    let headers = {"Content-Type": "application/json"};
+
+    return fetch("/api/auth/logout/", {headers, body: "", method: "POST"})
+      .then(res => {
+        if (res.status === 204) {
+          return {status: res.status, data: {}};
+        } else if (res.status < 500) {
+          return res.json().then(data => {
+            return {status: res.status, data};
+          })
+        } else {
+          console.log("Server Error!");
+          throw res;
+        }
+      })
+      .then(res => {
+        if (res.status === 204) {
+          dispatch({type: 'LOGOUT_SUCCESSFUL'});
+          return res.data;
+        } else if (res.status === 403 || res.status === 401) {
+          dispatch({type: "AUTHENTICATION_ERROR", data: res.data});
+          throw res.data;
+        }
+      })
+  }
+}
+```
+
+Теперь давайте воспользуемся этим action в компоненте PonyNote, добавив в него ссылку выхода из системы. Обновите `frontend/src/components/PonyNote.jsx`:
+
+```jsx
+import {notes, auth} from "../actions";
+
+class PonyNote extends Component {
+
+  render() {
+    return (
+      <div>
+        <h2>Welcome to PonyNote!</h2>
+        <hr />
+        <div style={{textAlign: "right"}}>
+          {this.props.user.username} (<a onClick={this.props.logout}>logout</a>)
+        </div>
+
+        {*/KEEP OTHER ELEMENTS*/}
+
+      </div>
+    )
+  }
+}
+
+
+const mapStateToProps = state => {
+  return {
+    notes: state.notes,
+    user: state.auth.user,
+  }
+}
+
+const mapDispatchToProps = dispatch => {
+  return {
+    fetchNotes: () => {
+      dispatch(notes.fetchNotes());
+    },
+    addNote: (text) => {
+      return dispatch(notes.addNote(text));
+    },
+    updateNote: (id, text) => {
+      return dispatch(notes.updateNote(id, text));
+    },
+    deleteNote: (id) => {
+      dispatch(notes.deleteNote(id));
+    },
+    logout: () => dispatch(auth.logout()),
+  }
+}
+```
+
+Это позволит отображать имя залогиненного пользователя вместе с ссылкой для выхода из системы. Сейчас наше приложение будет выглядеть примерно следующим образом:
+
+![auth-react](https://github.com/MaksimDzhangirov/Django-React/raw/master/img/part4/final.png)
+
+## Резюме
+
+Теперь Вы можете создавать, добавлять, просматривать, обновлять и удалять заметки, используя учетные записи пользователя. Страница с заметками защинена страницей входа в систему и любой пользователь может зарегистрироваться и начать работать со своими заметками.
+
+Я не уверен какой материал мне нужно опубликовать в следующей части. В последнем посте я думаю рассказать о серверном рендеринге React приложения (SSR) или процедуре развертывания приложения.
+
+Ссылки
+
+* [Django Rest Framework](http://www.django-rest-framework.org/)
+* [Django Rest Knox](https://github.com/James1345/django-rest-knox/)
